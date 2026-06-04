@@ -7,6 +7,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.systems.follows = "systems";
     };
+    ethereum-nix.url = "github:nix-community/ethereum.nix";
+    ethereum-nix = {
+      inputs.blueprint.follows = "blueprint";
+      inputs.treefmt-nix.follows = "treefmt-nix";
+    };
     systems.url = "github:nix-systems/default";
     nixpkgs.url = "github:NixOS/nixpkgs?ref=nixos-unstable";
     treefmt-nix = {

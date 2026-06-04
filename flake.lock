@@ -23,7 +23,47 @@
         "type": "github"
       }
     },
+    "ethereum-nix": {
+      "inputs": {
+        "blueprint": [
+          "blueprint"
+        ],
+        "nixpkgs": "nixpkgs",
+        "treefmt-nix": [
+          "treefmt-nix"
+        ]
+      },
+      "locked": {
+        "lastModified": 1780555924,
+        "narHash": "sha256-Xe3IWsA5G4vkaYfftzs4F4rilFdo35O3G4+GDq0lrCg=",
+        "owner": "nix-community",
+        "repo": "ethereum.nix",
+        "rev": "ab3d9470bd8c1a889df7b05392d2135481c472dc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "ethereum.nix",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
+      "locked": {
+        "lastModified": 1780365719,
+        "narHash": "sha256-QfWfccTN+70ZQ4m2qlU9PiKfz2Yppq94058iJyARNwc=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "ffa10e26ae11d676b2db836259889f1f571cb14f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
       "locked": {
         "lastModified": 1780243769,
         "narHash": "sha256-x5UQuRsH3MqI0U9afaXSNqzTPSeZlRLvFAav2Ux1pNw=",
@@ -42,7 +82,8 @@
     "root": {
       "inputs": {
         "blueprint": "blueprint",
-        "nixpkgs": "nixpkgs",
+        "ethereum-nix": "ethereum-nix",
+        "nixpkgs": "nixpkgs_2",
         "systems": "systems",
         "treefmt-nix": "treefmt-nix"
       }
