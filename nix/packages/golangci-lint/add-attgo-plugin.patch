@@ -1,0 +1,45 @@
+diff --git a/cmd/golangci-lint/plugins.go b/cmd/golangci-lint/plugins.go
+index 541ff76..1258a5f 100644
+--- a/cmd/golangci-lint/plugins.go
++++ b/cmd/golangci-lint/plugins.go
+@@ -1,3 +1,5 @@
+ package main
+ 
+-// This file is used to declare module plugins.
++import (
++	_ "github.com/attestantio/attgo-linter"
++)
+diff --git a/go.mod b/go.mod
+index a9e81cb..06f1e0d 100644
+--- a/go.mod
++++ b/go.mod
+@@ -3,7 +3,7 @@ module github.com/golangci/golangci-lint/v2
+ // The minimum Go version must always be latest-1.
+ // This version should never be changed outside of the PR to add the support of newer Go version.
+ // Only golangci-lint maintainers are allowed to change it.
+-go 1.24.0
++go 1.25.6
+ 
+ require (
+ 	4d63.com/gocheckcompilerdirectives v1.3.0
+@@ -29,6 +29,7 @@ require (
+ 	github.com/alingse/nilnesserr v0.2.0
+ 	github.com/ashanbrown/forbidigo/v2 v2.3.0
+ 	github.com/ashanbrown/makezero/v2 v2.1.0
++	github.com/attestantio/attgo-linter v0.2.0
+ 	github.com/bkielbasa/cyclop v1.2.3
+ 	github.com/blizzy78/varnamelen v0.8.0
+ 	github.com/bombsimon/wsl/v4 v4.7.0
+diff --git a/go.sum b/go.sum
+index 549c931..961ad44 100644
+--- a/go.sum
++++ b/go.sum
+@@ -96,6 +96,8 @@ github.com/ashanbrown/forbidigo/v2 v2.3.0 h1:OZZDOchCgsX5gvToVtEBoV2UWbFfI6RKQTi
+ github.com/ashanbrown/forbidigo/v2 v2.3.0/go.mod h1:5p6VmsG5/1xx3E785W9fouMxIOkvY2rRV9nMdWadd6c=
+ github.com/ashanbrown/makezero/v2 v2.1.0 h1:snuKYMbqosNokUKm+R6/+vOPs8yVAi46La7Ck6QYSaE=
+ github.com/ashanbrown/makezero/v2 v2.1.0/go.mod h1:aEGT/9q3S8DHeE57C88z2a6xydvgx8J5hgXIGWgo0MY=
++github.com/attestantio/attgo-linter v0.2.0 h1:+Ts78JXXn2xYRZczICBHNnzQc02Rz1pjvyko2jhbGVM=
++github.com/attestantio/attgo-linter v0.2.0/go.mod h1:FNANRbRboHJMXXQ5pDtmFF6f/lBPSZAqzQiktgVp6Qs=
+ github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
+ github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
+ github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
