@@ -41,7 +41,7 @@ pkgs.buildGo125Module (_finalAttrs: {
   ];
 
   runVend = true;
-  vendorHash = "sha256-Tjb5OGhGc5K+sE3V6FqPQcgR48jJ7I73ygRlZNoqyuI=";
+  vendorHash = "sha256-FuHeYvRfLIcddJimlmpe2gP8uD/ucguGgVcsNkIjXlY=";
 
   doCheck = true;
 

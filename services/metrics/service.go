@@ -47,6 +47,19 @@ type LockerMonitor any
 // RulerMonitor monitors the ruler service.
 type RulerMonitor any
 
+// HeadTrackerMonitor monitors the head tracker service.
+type HeadTrackerMonitor interface {
+	// HeadTrackerCheck is called when a head consistency check completes.
+	// operation is "attestation" or "proposal", result is "approved" or a
+	// specific deny reason.
+	HeadTrackerCheck(operation string, result string)
+	// HeadTrackerHeadSlot is called when the local beacon's head slot changes.
+	HeadTrackerHeadSlot(slot uint64)
+	// HeadTrackerHeadAge is called periodically with the seconds elapsed since
+	// the last head event was received.
+	HeadTrackerHeadAge(seconds float64)
+}
+
 // APIMonitor monitors the API service.
 type APIMonitor any
 
