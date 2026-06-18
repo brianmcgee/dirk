@@ -39,6 +39,8 @@ import (
 	staticchecker "github.com/attestantio/dirk/services/checker/static"
 	"github.com/attestantio/dirk/services/fetcher"
 	memfetcher "github.com/attestantio/dirk/services/fetcher/mem"
+	"github.com/attestantio/dirk/services/headtracker"
+	standardheadtracker "github.com/attestantio/dirk/services/headtracker/standard"
 	"github.com/attestantio/dirk/services/lister"
 	standardlister "github.com/attestantio/dirk/services/lister/standard"
 	"github.com/attestantio/dirk/services/locker"
@@ -206,6 +208,10 @@ func fetchConfig() (bool, error) {
 	viper.SetDefault("logging.timestamp.format", "2006-01-02T15:04:05.000Z07:00")
 	viper.SetDefault("storage-path", "storage")
 	viper.SetDefault("process.generation-timeout", 70*time.Second)
+	viper.SetDefault("beacon-node.request-timeout", 10*time.Second)
+	viper.SetDefault("beacon-node.staleness-threshold", 24*time.Second)
+	viper.SetDefault("beacon-node.ancestor-tolerance", uint64(4))
+	viper.SetDefault("beacon-node.attestation-deadline-offset", 3500*time.Millisecond)
 
 	if err := viper.ReadInConfig(); err != nil {
 		switch {
@@ -550,6 +556,12 @@ func startSigner(ctx context.Context,
 	if monitor, isMonitor := monitor.(metrics.SignerMonitor); isMonitor {
 		signerMonitor = monitor
 	}
+
+	headTrackerSvc, err := startHeadTracker(ctx, monitor)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to start head tracker")
+	}
+
 	signer, err := standardsigner.New(ctx,
 		standardsigner.WithLogLevel(util.LogLevel("signer")),
 		standardsigner.WithMonitor(signerMonitor),
@@ -557,12 +569,38 @@ func startSigner(ctx context.Context,
 		standardsigner.WithChecker(checkerSvc),
 		standardsigner.WithFetcher(fetcherSvc),
 		standardsigner.WithRuler(rulerSvc),
+		standardsigner.WithHeadTracker(headTrackerSvc),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signer service")
 	}
 
 	return signer, nil
+}
+
+// startHeadTracker creates the optional head consistency checker.  Returns
+// (nil, nil) when no beacon-node address is configured, in which case the
+// signer runs without the check, preserving existing behaviour.
+func startHeadTracker(ctx context.Context, monitor metrics.Service) (headtracker.Service, error) {
+	address := viper.GetString("beacon-node.address")
+	if address == "" {
+		return nil, nil
+	}
+
+	var htMonitor metrics.HeadTrackerMonitor
+	if monitor, isMonitor := monitor.(metrics.HeadTrackerMonitor); isMonitor {
+		htMonitor = monitor
+	}
+
+	return standardheadtracker.New(ctx,
+		standardheadtracker.WithLogLevel(util.LogLevel("headtracker")),
+		standardheadtracker.WithMonitor(htMonitor),
+		standardheadtracker.WithAddress(address),
+		standardheadtracker.WithRequestTimeout(viper.GetDuration("beacon-node.request-timeout")),
+		standardheadtracker.WithStalenessThreshold(viper.GetDuration("beacon-node.staleness-threshold")),
+		standardheadtracker.WithAncestorTolerance(viper.GetUint64("beacon-node.ancestor-tolerance")),
+		standardheadtracker.WithAttestationDeadlineOffset(viper.GetDuration("beacon-node.attestation-deadline-offset")),
+	)
 }
 
 func startSender(ctx context.Context,

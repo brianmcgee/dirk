@@ -55,9 +55,10 @@ type HeadTrackerMonitor interface {
 	HeadTrackerCheck(operation string, result string)
 	// HeadTrackerHeadSlot is called when the local beacon's head slot changes.
 	HeadTrackerHeadSlot(slot uint64)
-	// HeadTrackerHeadAge is called periodically with the seconds elapsed since
-	// the last head event was received.
-	HeadTrackerHeadAge(seconds float64)
+	// HeadTrackerRefreshAge is called periodically with the seconds elapsed
+	// since the local beacon view was last refreshed (from a head event or the
+	// periodic poll).
+	HeadTrackerRefreshAge(seconds float64)
 }
 
 // APIMonitor monitors the API service.

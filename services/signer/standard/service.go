@@ -18,6 +18,7 @@ import (
 
 	"github.com/attestantio/dirk/services/checker"
 	"github.com/attestantio/dirk/services/fetcher"
+	"github.com/attestantio/dirk/services/headtracker"
 	"github.com/attestantio/dirk/services/metrics"
 	"github.com/attestantio/dirk/services/ruler"
 	"github.com/attestantio/dirk/services/unlocker"
@@ -28,11 +29,12 @@ import (
 
 // Service is the signer handler.
 type Service struct {
-	monitor  metrics.SignerMonitor
-	checker  checker.Service
-	fetcher  fetcher.Service
-	ruler    ruler.Service
-	unlocker unlocker.Service
+	monitor     metrics.SignerMonitor
+	checker     checker.Service
+	fetcher     fetcher.Service
+	ruler       ruler.Service
+	unlocker    unlocker.Service
+	headTracker headtracker.Service
 }
 
 // module-wide log.
@@ -52,10 +54,11 @@ func New(_ context.Context, params ...Parameter) (*Service, error) {
 	}
 
 	return &Service{
-		monitor:  parameters.monitor,
-		unlocker: parameters.unlocker,
-		checker:  parameters.checker,
-		fetcher:  parameters.fetcher,
-		ruler:    parameters.ruler,
+		monitor:     parameters.monitor,
+		unlocker:    parameters.unlocker,
+		checker:     parameters.checker,
+		fetcher:     parameters.fetcher,
+		ruler:       parameters.ruler,
+		headTracker: parameters.headTracker,
 	}, nil
 }

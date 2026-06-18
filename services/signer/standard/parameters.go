@@ -16,6 +16,7 @@ package standard
 import (
 	"github.com/attestantio/dirk/services/checker"
 	"github.com/attestantio/dirk/services/fetcher"
+	"github.com/attestantio/dirk/services/headtracker"
 	"github.com/attestantio/dirk/services/metrics"
 	"github.com/attestantio/dirk/services/ruler"
 	"github.com/attestantio/dirk/services/unlocker"
@@ -24,12 +25,13 @@ import (
 )
 
 type parameters struct {
-	logLevel zerolog.Level
-	monitor  metrics.SignerMonitor
-	checker  checker.Service
-	fetcher  fetcher.Service
-	ruler    ruler.Service
-	unlocker unlocker.Service
+	monitor     metrics.SignerMonitor
+	logLevel    zerolog.Level
+	checker     checker.Service
+	fetcher     fetcher.Service
+	ruler       ruler.Service
+	unlocker    unlocker.Service
+	headTracker headtracker.Service
 }
 
 // Parameter is the interface for service parameters.
@@ -82,6 +84,16 @@ func WithUnlocker(service unlocker.Service) Parameter {
 func WithFetcher(service fetcher.Service) Parameter {
 	return parameterFunc(func(p *parameters) {
 		p.fetcher = service
+	})
+}
+
+// WithHeadTracker sets the optional head tracker for this module.  When set,
+// the signer consults the head tracker before approving a sign request to
+// confirm that the data is consistent with the locally configured beacon
+// node's view of the chain.  Pass nil (or omit) to disable the check.
+func WithHeadTracker(service headtracker.Service) Parameter {
+	return parameterFunc(func(p *parameters) {
+		p.headTracker = service
 	})
 }
 

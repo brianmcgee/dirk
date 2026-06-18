@@ -1,4 +1,5 @@
 # Development
+  - add optional beacon-node head consistency check
   - fix account manager completed metric OnGenerate error
   - import latest go-eth2-wallet-store-s3 to enable force-path-style on S3 
 

@@ -138,6 +138,45 @@ func (s *Service) SignBeaconAttestations(
 	}
 	log.Trace().Dur("elapsed", time.Since(started)).Msg("Completed precheck")
 
+	// If a headTracker is configured we check with it BEFORE the rules check.
+	// The rules check persists slashing protection state (the signed target
+	// epoch) on approval, so we need to make sure it doesn't run for a request
+	// the head tracker is going to reject.
+	// If it was the other way around we would store a target epoch for an
+	// attestation we never sign, and any later attempts to attest for that
+	// epoch, including a redundant vouch instance taking over, would be denied
+	// and the slot missed.
+	//
+	// A rejection here fails the whole batch (the requests share a slot, block root
+	// and checkpoints, so the head tracker's verdict is identical for all of them),
+	// matching the all-or-nothing handling of the precheck above and keeping nil
+	// entries out of RunRules.
+	if s.headTracker != nil {
+		_, err = util.Scatter(len(rulesData), func(offset int, entries int, _ *sync.RWMutex) (any, error) {
+			for i := offset; i < offset+entries; i++ {
+				if rulesData[i] == nil {
+					continue
+				}
+
+				if err := s.headTracker.CheckAttestation(ctx, headTrackerAttestationData(data[i])); err != nil {
+					log.Warn().Err(err).Int("index", i).Str("result", "denied").Msg("Head tracker denied attestation")
+					s.monitor.SignCompleted(started, "attestation", core.ResultDenied)
+					results[i] = core.ResultDenied
+				}
+			}
+
+			return make([]*util.ScatterResult, 0), nil
+		})
+		if err != nil {
+			log.Error().Err(err).Str("result", "failed").Msg("Failed to scatter head tracker check")
+		}
+		for i := range results {
+			if results[i] != core.ResultUnknown && results[i] != core.ResultSucceeded {
+				return results, nil
+			}
+		}
+	}
+
 	// Confirm approval via rules.
 	rulesResults := s.ruler.RunRules(ctx, credentials, ruler.ActionSignBeaconAttestation, rulesData)
 	log.Trace().Dur("elapsed", time.Since(started)).Msg("Completed rules")

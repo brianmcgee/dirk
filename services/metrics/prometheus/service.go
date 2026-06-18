@@ -40,6 +40,10 @@ type Service struct {
 
 	signerProcessTimer *prometheus.HistogramVec
 	signerRequests     *prometheus.CounterVec
+
+	headTrackerChecks     *prometheus.CounterVec
+	headTrackerHeadSlot   prometheus.Gauge
+	headTrackerRefreshAge prometheus.Gauge
 }
 
 // module-wide log.
@@ -74,6 +78,9 @@ func New(_ context.Context, params ...Parameter) (*Service, error) {
 	}
 	if err := s.setupSignerMetrics(); err != nil {
 		return nil, errors.Wrap(err, "failed to set up signer metrics")
+	}
+	if err := s.setupHeadTrackerMetrics(); err != nil {
+		return nil, errors.Wrap(err, "failed to set up head tracker metrics")
 	}
 
 	go func() {

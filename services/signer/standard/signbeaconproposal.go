@@ -107,6 +107,21 @@ func (s *Service) SignBeaconProposal(
 	span.SetAttributes(attribute.String("account", accountName))
 	log = log.With().Str("account", accountName).Logger()
 
+	// If a headTracker is configured we check with it BEFORE the rules check.
+	// The rules check persists slashing protection state (the signed proposal
+	// slot) on approval, so we need to make sure it doesn't run for a request
+	// the head tracker is going to reject.
+	// If it was the other way around we would store a proposal slot for a block
+	// we never sign, and any later attempt to propose for that slot, including a
+	// redundant vouch instance taking over, would be denied and the slot missed.
+	if s.headTracker != nil {
+		if err := s.headTracker.CheckProposal(ctx, headTrackerProposalData(data)); err != nil {
+			log.Warn().Err(err).Str("result", "denied").Msg("Head tracker denied proposal")
+			s.monitor.SignCompleted(started, "proposal", core.ResultDenied)
+			return core.ResultDenied, nil
+		}
+	}
+
 	// Confirm approval via rules.
 	rulesData := []*ruler.RulesData{
 		{
