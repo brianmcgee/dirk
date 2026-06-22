@@ -1,4 +1,4 @@
-// Copyright © 2020, 2021 Attestant Limited.
+// Copyright © 2020 - 2026 Attestant Limited.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -59,6 +59,10 @@ type HeadTrackerMonitor interface {
 	// since the local beacon view was last refreshed (from a head event or the
 	// periodic poll).
 	HeadTrackerRefreshAge(seconds float64)
+	// HeadTrackerHeadEventDelay is called for each fresh head event with the
+	// seconds elapsed from the start of the event's slot until the event was
+	// received, measuring propagation lag from the local beacon.
+	HeadTrackerHeadEventDelay(seconds float64)
 }
 
 // APIMonitor monitors the API service.

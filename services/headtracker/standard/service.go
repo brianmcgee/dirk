@@ -412,6 +412,14 @@ func (s *Service) handleEvent(ctx context.Context, ev *apiv1.Event) {
 		Str("block", blockID).
 		Msg("Head event")
 
+	// Record how far into its slot we learned of this head, for SSE-timeliness
+	// analysis.  Only events for the current slot are recorded. A catch-up event
+	// after a dropped stream is for an old slot, which we ignore.  A late block
+	// still arrives within its own slot, so its delay is captured here.
+	if head.Slot == s.currentSlot() {
+		s.monitor.HeadTrackerHeadEventDelay(time.Since(s.slotStartTime(head.Slot)).Seconds())
+	}
+
 	// Refresh our view of the chain using this block as the latest head.
 	if err := s.refreshState(ctx, blockID); err != nil {
 		s.log.Debug().Err(err).Msg("State refresh after head event failed")

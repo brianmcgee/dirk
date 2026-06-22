@@ -44,7 +44,20 @@ func (s *Service) setupHeadTrackerMetrics() error {
 		Name:      "refresh_age_seconds",
 		Help:      "Seconds since the local beacon view was last refreshed from the beacon node, via a head event or the periodic poll.  The staleness check denies signing once this exceeds the configured threshold.",
 	})
-	return prometheus.Register(s.headTrackerRefreshAge)
+	if err := prometheus.Register(s.headTrackerRefreshAge); err != nil {
+		return err
+	}
+
+	s.headTrackerHeadEventDelay = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "dirk",
+		Subsystem: "headtracker",
+		Name:      "head_event_delay_seconds",
+		Help:      "Seconds from the start of a slot until the local beacon's head event for it was received.",
+		Buckets: []float64{
+			0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0,
+		},
+	})
+	return prometheus.Register(s.headTrackerHeadEventDelay)
 }
 
 // HeadTrackerCheck records the outcome of a single check.
@@ -61,4 +74,10 @@ func (s *Service) HeadTrackerHeadSlot(slot uint64) {
 // last refreshed.
 func (s *Service) HeadTrackerRefreshAge(seconds float64) {
 	s.headTrackerRefreshAge.Set(seconds)
+}
+
+// HeadTrackerHeadEventDelay records the seconds from the start of a slot until
+// its head event was received.
+func (s *Service) HeadTrackerHeadEventDelay(seconds float64) {
+	s.headTrackerHeadEventDelay.Observe(seconds)
 }

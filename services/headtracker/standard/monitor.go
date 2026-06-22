@@ -20,3 +20,4 @@ type noopMonitor struct{}
 func (*noopMonitor) HeadTrackerCheck(_ string, _ string) {}
 func (*noopMonitor) HeadTrackerHeadSlot(_ uint64)        {}
 func (*noopMonitor) HeadTrackerRefreshAge(_ float64)     {}
+func (*noopMonitor) HeadTrackerHeadEventDelay(_ float64) {}
