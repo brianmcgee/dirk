@@ -25,6 +25,7 @@ import (
 	"github.com/attestantio/go-eth2-client/spec/phase0"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 // rootAt returns a deterministic test root whose first byte equals i.
@@ -384,14 +385,9 @@ func TestRefreshStatePublishesHeadBeforeAncestorWalk(t *testing.T) {
 		},
 	}
 
-	justified := phase0.Checkpoint{Epoch: 3, Root: rootAt(0xaa)}
-	finalized := phase0.Checkpoint{Epoch: 2, Root: rootAt(0xbb)}
-	finality := &fakeFinalityProvider{fixed: &apiv1.Finality{Justified: &justified, Finalized: &finalized}}
-
 	s := &Service{
 		monitor:            &noopMonitor{},
 		headersProvider:    headers,
-		finalityProvider:   finality,
 		requestTimeout:     time.Second,
 		ancestorTolerance:  4,
 		stalenessThreshold: 24 * time.Second,
@@ -412,7 +408,7 @@ func TestRefreshStatePublishesHeadBeforeAncestorWalk(t *testing.T) {
 	}
 
 	rq := require.New(t)
-	rq.NoError(s.refreshState(context.Background(), "head"))
+	rq.NoError(s.refreshHead(context.Background(), "head"))
 	rq.True(headVisibleDuringWalk, "head root must be published before the ancestor walk")
 
 	st := s.state.Load()
@@ -424,8 +420,6 @@ func TestRefreshStatePublishesHeadBeforeAncestorWalk(t *testing.T) {
 		_, ok := st.chain[r]
 		as.Truef(ok, "final chain must contain %#x", r)
 	}
-	as.Equal(justified, st.justified)
-	as.Equal(finalized, st.finalized)
 }
 
 // newRefreshTestService builds a Service wired to the supplied fakes, with the
@@ -480,11 +474,9 @@ func TestRefreshStateSkipsKnownAncestors(t *testing.T) {
 		root:       prevRoot,
 		slot:       100,
 		lastUpdate: time.Now(),
-		justified:  justified,
-		finalized:  finalized,
 	})
 
-	require.NoError(t, s.refreshState(context.Background(), "head"))
+	require.NoError(t, s.refreshHead(context.Background(), "head"))
 
 	as := assert.New(t)
 	as.Equal([]string{"head"}, headers.fetched, "only the head must be fetched on a direct extension")
@@ -535,11 +527,9 @@ func TestRefreshStateWalksAncestorsOnReorg(t *testing.T) {
 		root:       staleRoot,
 		slot:       100,
 		lastUpdate: time.Now(),
-		justified:  justified,
-		finalized:  finalized,
 	})
 
-	require.NoError(t, s.refreshState(context.Background(), "head"))
+	require.NoError(t, s.refreshHead(context.Background(), "head"))
 
 	as := assert.New(t)
 	as.Contains(headers.fetched, rootHex(parentRoot), "ancestors must be walked on a reorg")
@@ -550,6 +540,34 @@ func TestRefreshStateWalksAncestorsOnReorg(t *testing.T) {
 	as.False(ok, "off-chain prior head must not be retained on a reorg")
 	_, ok = st.chain[parentRoot]
 	as.True(ok, "walked ancestor must be present")
+}
+
+// TestUpdateStateConcurrentMergePreservesBothHalves runs head writers and
+// finality writers concurrently, each applying a distinct increment, and
+// asserts that no update from either half is lost.
+func TestUpdateStateConcurrentMergePreservesBothHalves(t *testing.T) {
+	s := &Service{}
+	s.state.Store(&snapshot{slot: 1, justified: phase0.Checkpoint{Epoch: 1}})
+
+	const n = 64
+
+	var g errgroup.Group
+	for range n {
+		g.Go(func() error {
+			s.updateState(func(next *snapshot) { next.slot++ })
+			return nil
+		})
+		g.Go(func() error {
+			s.updateState(func(next *snapshot) { next.justified.Epoch++ })
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+
+	st := s.state.Load()
+
+	assert.Equal(t, phase0.Slot(n+1), st.slot, "every head increment must survive concurrent finality merges")
+	assert.Equal(t, phase0.Epoch(n+1), st.justified.Epoch, "every finality increment must survive concurrent head merges")
 }
 
 // TestFetchFinalityQueriesCurrentSlotState reproduces the epoch-boundary

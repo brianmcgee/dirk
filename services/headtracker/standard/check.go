@@ -38,7 +38,7 @@ const (
 // with the beacon node's view of the chain.  Returns nil on approval, or a
 // non-nil error describing the denial reason.
 func (s *Service) CheckAttestation(ctx context.Context, data *headtracker.AttestationData) error {
-	// Load the latest cached state.
+	// Load the latest snapshot.
 	st := s.state.Load()
 
 	// Check if it's stale.
@@ -55,7 +55,7 @@ func (s *Service) CheckAttestation(ctx context.Context, data *headtracker.Attest
 	// denying immediately we wait, up to the slot's attestation deadline, for
 	// the root to appear on our LOCAL canonical chain.
 	//
-	// The wait only ever re-reads our own beacon's state snapshot: a root is
+	// The wait only ever re-reads our own beacon's snapshot: a root is
 	// approved solely because the local node adopted it, never because the
 	// requester asserted it.  A compromised client cannot induce a signature
 	// for a root our node does not itself know about. At worst, it induces a
@@ -72,14 +72,15 @@ func (s *Service) CheckAttestation(ctx context.Context, data *headtracker.Attest
 
 	justified := st.justified
 
-	// On an epoch boundary our cached justified checkpoint can lag the beacon by
-	// one epoch until the next refresh, even though the beacon would report the
-	// advanced checkpoint if asked.  When the request's source is exactly one
-	// epoch ahead, re-query our own beacon's finality - bounded by the slot's
-	// attestation deadline - before deciding, rather than denying a checkpoint we
-	// would hold had we just refreshed.  Only our own beacon is consulted, so the
-	// source is accepted because our node computed it, never on the requester's
-	// assertion.
+	// On an epoch boundary our cached justified checkpoint can lag the beacon
+	// by one epoch until the next refresh is triggered by a head event or our
+	// backup periodic polling, even though the beacon would report the
+	// advanced checkpoint if asked.
+	//
+	// So when the request's source is exactly one epoch ahead, re-query our
+	// own beacon's finality, bounded by the slot's attestation deadline,
+	// before deciding, rather than denying a checkpoint we would hold had we
+	// just refreshed.
 	if data.Source.Epoch != justified.Epoch || data.Source.Root != justified.Root {
 		justified = s.awaitJustifiedCheckpoint(ctx, justified, data.Source, data.Slot)
 	}
@@ -185,14 +186,6 @@ func (s *Service) awaitBlockRootOnChain(
 // checkpoint can arrive before that refresh and be denied on a checkpoint we
 // would hold moments later.
 //
-// It acts only on that exact signature - the source exactly one epoch ahead of
-// our cached justified - and re-queries our OWN beacon's finality at the current
-// slot, which the beacon computes across the boundary even for an empty slot,
-// until it advances to the source epoch or the slot's attestation deadline
-// passes.  Any other mismatch, or an advance that never arrives, falls through
-// to denial.  The requester's asserted checkpoint is never trusted; the source
-// is accepted only because our node computed the same one.
-//
 // It returns the most recent justified checkpoint observed.
 func (s *Service) awaitJustifiedCheckpoint(
 	ctx context.Context,
@@ -231,9 +224,10 @@ func (s *Service) awaitJustifiedCheckpoint(
 
 	latest := cached
 	for {
-		// Re-query our own beacon's finality at the current slot. A successful
-		// response that has crossed the boundary ends the wait at once.
-		if justified, _, err := s.fetchFinality(waitCtx); err == nil {
+		// Re-query our own beacon's finality at the current slot, publishing it
+		// so a concurrent attestation at the same boundary need not re-query. A
+		// response that has crossed the boundary ends the wait immediately.
+		if justified, err := s.refreshFinality(waitCtx); err == nil {
 			latest = justified
 			if latest.Epoch >= source.Epoch {
 				return latest

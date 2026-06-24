@@ -42,9 +42,11 @@ const (
 	defaultBlockRootPollInterval = 50 * time.Millisecond
 )
 
-// snapshot is an immutable view of the beacon's head and finality.  It is
-// updated atomically via an atomic pointer, so a single Load always yields a
-// consistent head and finality pair.
+// snapshot is an immutable view of the beacon's head and finality.  A single
+// atomic Load yields a consistent (head, finality) pair.  Writers update it via
+// updateState, which copies the current snapshot, applies its own fields and
+// compare-and-swaps, so the head and finality halves can be refreshed
+// independently without locking and without losing a concurrent update.
 type snapshot struct {
 	chain      map[phase0.Root]phase0.Slot
 	root       phase0.Root
@@ -76,8 +78,8 @@ type Service struct {
 
 	genesisTime time.Time
 
-	// state is the latest head and finality snapshot.  Every writer publishes a
-	// complete snapshot in a single atomic Store.
+	// state is the latest head and finality snapshot, read lock-free via Load and
+	// updated by writers via updateState's compare-and-swap.
 	state atomic.Pointer[snapshot]
 }
 
@@ -161,8 +163,16 @@ func New(ctx context.Context, params ...Parameter) (*Service, error) {
 
 	s.genesisTime = genesisResp.Data.GenesisTime
 
-	// Get initial state.
-	if err = s.refreshState(ctx, headBlockID); err != nil {
+	// Bootstrap both views concurrently before serving
+	bootstrap, bootstrapCtx := errgroup.WithContext(ctx)
+
+	bootstrap.Go(func() error { return s.refreshHead(bootstrapCtx, headBlockID) })
+	bootstrap.Go(func() error {
+		_, err := s.refreshFinality(bootstrapCtx)
+		return err
+	})
+
+	if err = bootstrap.Wait(); err != nil {
 		return nil, errors.Wrap(err, "failed to bootstrap state")
 	}
 
@@ -191,64 +201,31 @@ func New(ctx context.Context, params ...Parameter) (*Service, error) {
 	return s, nil
 }
 
-// refreshState rebuilds and updates our view of the chain, starting from the
-// provided blockID. It fetches finality and the block header concurrently and
-// then publishes a recent view of the chain.
+// refreshHead rebuilds and publishes our view of the chain head and its recent
+// ancestors, starting from the provided blockID.
 //
 // When the head directly extends our previous head the prior window is reused
-// and no ancestors are re-fetched.  Otherwise, the head is published first and
-// the ancestry is then walked from the beacon and published.
+// and no ancestors are re-fetched.  Otherwise, the head is published first, so
+// our bounded block-root wait can act on it immediately, and the ancestry is
+// then walked and published.
 //
-// If either the head or finality fetch fails the prior snapshot is left
-// untouched.  The ancestor walk, by contrast, is best-effort and tolerates
-// a truncated view due to header request failures.
-func (s *Service) refreshState(ctx context.Context, blockID string) error {
-	// We use an errgroup to allow for concurrent requests.
-	eg, ctx := errgroup.WithContext(ctx)
-
-	var (
-		head                 *apiv1.BeaconBlockHeader
-		justified, finalized phase0.Checkpoint
-	)
-
-	// Fetch latest finality.
-	eg.Go(func() error {
-		var fetchErr error
-
-		justified, finalized, fetchErr = s.fetchFinality(ctx)
-		if fetchErr != nil {
-			return errors.Wrap(fetchErr, "failed to fetch finality")
-		}
-
-		return nil
-	})
-
-	// If no head was provided we fetch the latest head, otherwise we fetch the
-	// requested block.
+// If the head fetch fails the prior view is left untouched.  The ancestor walk,
+// by contrast, is best-effort and tolerates a truncated view due to header
+// request failures.
+func (s *Service) refreshHead(ctx context.Context, blockID string) error {
 	if blockID == "" {
-		blockID = "head"
+		blockID = headBlockID
 	}
 
-	eg.Go(func() error {
-		var fetchErr error
-
-		head, fetchErr = s.fetchHeader(ctx, blockID)
-		if fetchErr != nil {
-			return errors.Wrap(fetchErr, "failed to fetch head")
-		}
-
-		return nil
-	})
-
-	// Wait for fetches to finish.
-	if err := eg.Wait(); err != nil {
-		return errors.Wrap(err, "refresh state failed")
+	head, err := s.fetchHeader(ctx, blockID)
+	if err != nil {
+		return errors.Wrap(err, "failed to fetch head")
 	}
 
 	prev := s.state.Load()
 	headMsg := head.Header.Message
 
-	// Fast path: the new head is a direct descendent of the previous head
+	// Fast path: the new head is a direct descendent of the previous head.
 	// The previous set of ancestors are still canonical, so reuse them and
 	// skip fetching them again.
 	if prev != nil && headMsg.ParentRoot == prev.root {
@@ -256,14 +233,14 @@ func (s *Service) refreshState(ctx context.Context, blockID string) error {
 		chain[head.Root] = headMsg.Slot
 		retainRecentAncestors(chain, prev.chain, s.ancestorTolerance)
 
-		s.publishSnapshot(head.Root, headMsg.Slot, justified, finalized, chain)
+		s.publishHead(head.Root, headMsg.Slot, chain)
 
 		return nil
 	}
 
-	// Slow path (reorg, gap or bootstrap): go ahead and publish the new head
-	// and fetch the ancestors in the background.
-	s.publishSnapshot(head.Root, headMsg.Slot, justified, finalized,
+	// Slow path (reorg, gap or bootstrap): publish the new head, then walk and
+	// republish as each ancestor is fetched.
+	s.publishHead(head.Root, headMsg.Slot,
 		map[phase0.Root]phase0.Slot{head.Root: headMsg.Slot})
 
 	// Build the authoritative view of recent blocks, root -> slot, starting with
@@ -291,11 +268,29 @@ func (s *Service) refreshState(ctx context.Context, blockID string) error {
 		currentSlot = ancestorMsg.Slot
 		currentRoot = ancestorMsg.ParentRoot
 
-		// Publish a fresh snapshot as we fetch each ancestor.
-		s.publishSnapshot(head.Root, headMsg.Slot, justified, finalized, chain)
+		// Publish a fresh view as we fetch each ancestor.
+		s.publishHead(head.Root, headMsg.Slot, chain)
 	}
 
 	return nil
+}
+
+// refreshFinality re-queries the local beacon's finality and merges it into the
+// snapshot, leaving the head untouched.  It is the minimal refresh the
+// checkpoint check needs at an epoch boundary, where only the justified
+// checkpoint moves.  It returns the justified checkpoint observed.
+func (s *Service) refreshFinality(ctx context.Context) (phase0.Checkpoint, error) {
+	justified, finalized, err := s.fetchFinality(ctx)
+	if err != nil {
+		return phase0.Checkpoint{}, errors.Wrap(err, "failed to fetch finality")
+	}
+
+	s.updateState(func(next *snapshot) {
+		next.justified = justified
+		next.finalized = finalized
+	})
+
+	return justified, nil
 }
 
 // retainRecentAncestors copies the tolerance most recent entries with the
@@ -329,25 +324,46 @@ func retainRecentAncestors(dst, src map[phase0.Root]phase0.Slot, tolerance uint6
 	}
 }
 
-// publishSnapshot atomically stores a new snapshot and updates the head-slot
-// metric.  Each call replaces the whole snapshot, so a single Load always
-// yields a consistent head, chain and finality triple.
-func (s *Service) publishSnapshot(
+// publishHead merges a new head into the snapshot and updates the head-slot
+// metric, leaving finality untouched.
+func (s *Service) publishHead(
 	root phase0.Root,
 	slot phase0.Slot,
-	justified, finalized phase0.Checkpoint,
 	chain map[phase0.Root]phase0.Slot,
 ) {
-	s.state.Store(&snapshot{
-		chain:      chain,
-		root:       root,
-		slot:       slot,
-		lastUpdate: time.Now(),
-		justified:  justified,
-		finalized:  finalized,
+	s.updateState(func(next *snapshot) {
+		next.chain = chain
+		next.root = root
+		next.slot = slot
+		next.lastUpdate = time.Now()
 	})
 
 	s.monitor.HeadTrackerHeadSlot(uint64(slot))
+}
+
+// updateState applies mutate to a copy of the current snapshot and installs it
+// with a compare-and-swap, retrying if a concurrent writer updated the snapshot
+// in between.  Each writer touches only its own fields, so the retry re-merges
+// onto the latest snapshot rather than clobbering the other half.  The fetches
+// run before this; only the in-memory merge is retried, so the loop is cheap.
+//
+// The copy is shallow: the chain map is shared, never mutated in place.  Head
+// writers always install a fresh map and finality writers never touch it.
+func (s *Service) updateState(mutate func(next *snapshot)) {
+	for {
+		old := s.state.Load()
+
+		var next snapshot
+		if old != nil {
+			next = *old
+		}
+
+		mutate(&next)
+
+		if s.state.CompareAndSwap(old, &next) {
+			return
+		}
+	}
 }
 
 // fetchHeader retrieves a single beacon block header, applying the configured
@@ -420,9 +436,24 @@ func (s *Service) handleEvent(ctx context.Context, ev *apiv1.Event) {
 		s.monitor.HeadTrackerHeadEventDelay(time.Since(s.slotStartTime(head.Slot)).Seconds())
 	}
 
+	// Note whether this head is the first we have seen in a new epoch before we
+	// refresh, since finality can only have moved across an epoch boundary.
+	prev := s.state.Load()
+	advancedEpoch := prev == nil || s.epochOf(head.Slot) > s.epochOf(prev.slot)
+
 	// Refresh our view of the chain using this block as the latest head.
-	if err := s.refreshState(ctx, blockID); err != nil {
-		s.log.Debug().Err(err).Msg("State refresh after head event failed")
+	if err := s.refreshHead(ctx, blockID); err != nil {
+		s.log.Debug().Err(err).Msg("Head refresh after head event failed")
+	}
+
+	// Refresh finality only when this head crossed into a new epoch.  This
+	// pre-warms the cached checkpoint before the attestation deadline; the
+	// periodic poll and the on-demand checkpoint wait cover the late or empty
+	// boundary this misses.
+	if advancedEpoch {
+		if _, err := s.refreshFinality(ctx); err != nil {
+			s.log.Debug().Err(err).Msg("Finality refresh after epoch-advancing head event failed")
+		}
 	}
 }
 
@@ -444,13 +475,17 @@ func (s *Service) pollPeriodically(ctx context.Context) {
 			// frequent empty slots (e.g. Hoodi) a healthy beacon's view would
 			// otherwise age past the staleness threshold and deny signing on
 			// a perfectly valid head. This poll acts as a liveness check.
-			// It also acts as a finality backup for empty slots that emit no
-			// head event.
-			if err := s.refreshState(ctx, headBlockID); err != nil {
-				s.log.Debug().Err(err).Msg("Periodic state refresh failed")
+			if err := s.refreshHead(ctx, headBlockID); err != nil {
+				s.log.Debug().Err(err).Msg("Periodic head refresh failed")
 			}
 
-			// Publish the age of the cached view.
+			// Refresh finality unconditionally as the backup for a boundary whose
+			// head event we missed or that fell in a fully empty epoch.
+			if _, err := s.refreshFinality(ctx); err != nil {
+				s.log.Debug().Err(err).Msg("Periodic finality refresh failed")
+			}
+
+			// Publish the age of the cached head view.
 			age := time.Since(s.state.Load().lastUpdate)
 			s.monitor.HeadTrackerRefreshAge(age.Seconds())
 		}
@@ -470,4 +505,9 @@ func (s *Service) currentSlot() phase0.Slot {
 // slotStartTime returns the wall-clock time at which the given slot begins.
 func (s *Service) slotStartTime(slot phase0.Slot) time.Time {
 	return s.genesisTime.Add(time.Duration(slot) * s.secondsPerSlot)
+}
+
+// epochOf returns the epoch containing the given slot.
+func (s *Service) epochOf(slot phase0.Slot) phase0.Epoch {
+	return phase0.Epoch(uint64(slot) / s.slotsPerEpoch)
 }
