@@ -200,10 +200,10 @@ func TestCheckAttestationBlockRootWait(t *testing.T) {
 
 	t.Run("ApprovesOnceRootImportedWithinTolerance", func(t *testing.T) {
 		s := newTestService()
-		// newTestService places slot 100 at ~now, so a 2s offset leaves ample
+		// newTestService places slot 100 at ~now, so a 2s delay leaves ample
 		// headroom before this slot's attestation deadline.
 		s.blockRootPollInterval = 10 * time.Millisecond
-		s.attestationDeadlineOffset = 2 * time.Second
+		s.maxAttestationDelay = 2 * time.Second
 
 		data := validAttestation(rootAt(lateRoot), s.state.Load().justified)
 
@@ -236,7 +236,7 @@ func TestCheckAttestationBlockRootWait(t *testing.T) {
 		// Push the deadline 80ms past slot start so the wait is short but real.
 		s.genesisTime = time.Now().Add(-100 * 12 * time.Second)
 		s.blockRootPollInterval = 10 * time.Millisecond
-		s.attestationDeadlineOffset = 80 * time.Millisecond
+		s.maxAttestationDelay = 80 * time.Millisecond
 
 		data := validAttestation(rootAt(0xff), s.state.Load().justified)
 
@@ -260,7 +260,7 @@ func TestCheckAttestationBlockRootWait(t *testing.T) {
 		s := newTestService()
 		// A long deadline so the context cancellation is what ends the wait.
 		s.genesisTime = time.Now().Add(-100 * 12 * time.Second)
-		s.attestationDeadlineOffset = 10 * time.Second
+		s.maxAttestationDelay = 10 * time.Second
 		s.blockRootPollInterval = 10 * time.Millisecond
 
 		data := validAttestation(rootAt(0xff), s.state.Load().justified)
@@ -284,7 +284,7 @@ func TestCheckAttestationBlockRootWait(t *testing.T) {
 		// already elapsed by the time the request arrives, even though the wait
 		// is enabled.  The wait must short-circuit rather than poll.
 		s.genesisTime = time.Now().Add(-101 * 12 * time.Second)
-		s.attestationDeadlineOffset = 4 * time.Second
+		s.maxAttestationDelay = 4 * time.Second
 		s.blockRootPollInterval = 10 * time.Millisecond
 
 		data := validAttestation(rootAt(0xff), s.state.Load().justified)
@@ -640,19 +640,19 @@ func TestCheckAttestationCheckpointWait(t *testing.T) {
 
 	// build wires a service whose cached justified checkpoint lags at epoch 2,
 	// with the head root 0x01 on-chain at the current slot, finality queries
-	// answered by served, and the given deadline offset.
-	build := func(served *fakeFinalityProvider, offset time.Duration) (*Service, *headtracker.AttestationData) {
+	// answered by served, and the given attestation delay.
+	build := func(served *fakeFinalityProvider, delay time.Duration) (*Service, *headtracker.AttestationData) {
 		s := &Service{
-			monitor:                   &noopMonitor{},
-			finalityProvider:          served,
-			requestTimeout:            time.Second,
-			ancestorTolerance:         4,
-			stalenessThreshold:        24 * time.Second,
-			attestationDeadlineOffset: offset,
-			blockRootPollInterval:     20 * time.Millisecond,
-			slotsPerEpoch:             32,
-			secondsPerSlot:            secondsPerSlot,
-			genesisTime:               time.Now().Add(-time.Duration(currentSlot) * secondsPerSlot),
+			monitor:               &noopMonitor{},
+			finalityProvider:      served,
+			requestTimeout:        time.Second,
+			ancestorTolerance:     4,
+			stalenessThreshold:    24 * time.Second,
+			maxAttestationDelay:   delay,
+			blockRootPollInterval: 20 * time.Millisecond,
+			slotsPerEpoch:         32,
+			secondsPerSlot:        secondsPerSlot,
+			genesisTime:           time.Now().Add(-time.Duration(currentSlot) * secondsPerSlot),
 		}
 		s.state.Store(&snapshot{
 			chain:      map[phase0.Root]phase0.Slot{rootAt(0x01): currentSlot},
@@ -705,7 +705,7 @@ func TestCheckAttestationCheckpointWait(t *testing.T) {
 
 	t.Run("DeniesImmediatelyWhenWaitDisabled", func(t *testing.T) {
 		fin := &fakeFinalityProvider{fixed: &advanced}
-		s, data := build(fin, 0) // offset 0 disables the wait
+		s, data := build(fin, 0) // delay 0 disables the wait
 
 		err := s.CheckAttestation(context.Background(), data)
 		require.Error(t, err)

@@ -211,7 +211,7 @@ func fetchConfig() (bool, error) {
 	viper.SetDefault("beacon-node.request-timeout", 10*time.Second)
 	viper.SetDefault("beacon-node.staleness-threshold", 24*time.Second)
 	viper.SetDefault("beacon-node.ancestor-tolerance", uint64(4))
-	viper.SetDefault("beacon-node.attestation-deadline-offset", 3500*time.Millisecond)
+	viper.SetDefault("beacon-node.max-attestation-delay", 4500*time.Millisecond)
 
 	if err := viper.ReadInConfig(); err != nil {
 		switch {
@@ -599,7 +599,7 @@ func startHeadTracker(ctx context.Context, monitor metrics.Service) (headtracker
 		standardheadtracker.WithRequestTimeout(viper.GetDuration("beacon-node.request-timeout")),
 		standardheadtracker.WithStalenessThreshold(viper.GetDuration("beacon-node.staleness-threshold")),
 		standardheadtracker.WithAncestorTolerance(viper.GetUint64("beacon-node.ancestor-tolerance")),
-		standardheadtracker.WithAttestationDeadlineOffset(viper.GetDuration("beacon-node.attestation-deadline-offset")),
+		standardheadtracker.WithMaxAttestationDelay(viper.GetDuration("beacon-node.max-attestation-delay")),
 	)
 }
 

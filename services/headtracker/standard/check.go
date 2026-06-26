@@ -139,13 +139,13 @@ func (s *Service) awaitBlockRootOnChain(
 	}
 
 	// Otherwise, return early if waiting is disabled.
-	if s.attestationDeadlineOffset <= 0 {
+	if s.maxAttestationDelay <= 0 {
 		// Wait disabled: preserve immediate denial.
 		return st, false
 	}
 
-	// Calculate a deadline based on the slot start time and our attestation offset.
-	deadline := s.slotStartTime(slot).Add(s.attestationDeadlineOffset)
+	// Calculate a deadline based on the slot start time and our max attestation delay.
+	deadline := s.slotStartTime(slot).Add(s.maxAttestationDelay)
 
 	if !time.Now().Before(deadline) {
 		// Already past the slot's attestation deadline.
@@ -199,14 +199,14 @@ func (s *Service) awaitJustifiedCheckpoint(
 	}
 
 	// Otherwise, return early if waiting is disabled.
-	if s.attestationDeadlineOffset <= 0 {
+	if s.maxAttestationDelay <= 0 {
 		return cached
 	}
 
 	// Bound the re-query by the same slot attestation deadline as the block-root
 	// wait, so the two never together exceed the point a signature stops being
 	// useful.
-	deadline := s.slotStartTime(slot).Add(s.attestationDeadlineOffset)
+	deadline := s.slotStartTime(slot).Add(s.maxAttestationDelay)
 	if !time.Now().Before(deadline) {
 		return cached
 	}

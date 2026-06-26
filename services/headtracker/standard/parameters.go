@@ -31,9 +31,9 @@ type parameters struct {
 	slotsPerEpoch  uint64
 	secondsPerSlot time.Duration
 
-	ancestorTolerance         uint64
-	stalenessThreshold        time.Duration
-	attestationDeadlineOffset time.Duration
+	ancestorTolerance   uint64
+	stalenessThreshold  time.Duration
+	maxAttestationDelay time.Duration
 }
 
 // Parameter is the interface for service parameters.
@@ -91,7 +91,7 @@ func WithAncestorTolerance(tolerance uint64) Parameter {
 	})
 }
 
-// WithAttestationDeadlineOffset sets how long, measured from the start of the
+// WithMaxAttestationDelay sets how long, measured from the start of the
 // slot being attested, the head tracker will wait for a not-yet-imported
 // attestation block root to appear on the local beacon's canonical chain
 // before denying.  This absorbs the propagation skew of a late block without
@@ -99,14 +99,17 @@ func WithAncestorTolerance(tolerance uint64) Parameter {
 // node itself adopts it, so the worst a compromised client can induce is a
 // delay that ends in the same denial.
 //
-// It is an offset into the slot, not a relative budget, so it is independent
-// of when the request arrives; once the wall clock is past it the tracker
-// denies immediately.  Set it short of the SECONDS_PER_SLOT/3 attestation
-// boundary to leave headroom for signing and submission (e.g. 3.5s on a 12s
-// slot).  A value of zero disables the wait and restores immediate denial.
-func WithAttestationDeadlineOffset(offset time.Duration) Parameter {
+// The delay is measured from the start of the slot being attested, not from
+// when the request arrives, so it is independent of request timing; once the
+// wall clock is past it the tracker denies immediately.  The default of 4.5s
+// deliberately sits 0.5s past Vouch's 4s (SECONDS_PER_SLOT/3) attestation
+// fallback: when Vouch stops waiting for the block and signs at 4s, that
+// margin lets a still-propagating root land here so this Dirk approves rather
+// than denies.  A value of zero disables the wait and restores immediate
+// denial.
+func WithMaxAttestationDelay(delay time.Duration) Parameter {
 	return parameterFunc(func(p *parameters) {
-		p.attestationDeadlineOffset = offset
+		p.maxAttestationDelay = delay
 	})
 }
 
@@ -128,13 +131,13 @@ func WithSlotsPerEpoch(slotsPerEpoch uint64) Parameter {
 
 func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	p := parameters{
-		logLevel:                  zerolog.GlobalLevel(),
-		requestTimeout:            10 * time.Second,
-		slotsPerEpoch:             32,
-		secondsPerSlot:            12 * time.Second,
-		ancestorTolerance:         4,
-		stalenessThreshold:        24 * time.Second,
-		attestationDeadlineOffset: 3500 * time.Millisecond,
+		logLevel:            zerolog.GlobalLevel(),
+		requestTimeout:      10 * time.Second,
+		slotsPerEpoch:       32,
+		secondsPerSlot:      12 * time.Second,
+		ancestorTolerance:   4,
+		stalenessThreshold:  24 * time.Second,
+		maxAttestationDelay: 4500 * time.Millisecond,
 	}
 
 	for _, param := range params {
@@ -155,8 +158,8 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	if p.ancestorTolerance == 0 {
 		return nil, errors.New("ancestor tolerance must be at least 1")
 	}
-	if p.attestationDeadlineOffset < 0 {
-		return nil, errors.New("attestation deadline offset must not be negative")
+	if p.maxAttestationDelay < 0 {
+		return nil, errors.New("max attestation delay must not be negative")
 	}
 	if p.secondsPerSlot <= 0 {
 		return nil, errors.New("seconds per slot must be positive")

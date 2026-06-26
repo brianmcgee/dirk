@@ -71,10 +71,10 @@ type Service struct {
 	slotsPerEpoch  uint64
 	secondsPerSlot time.Duration
 
-	ancestorTolerance         uint64
-	stalenessThreshold        time.Duration
-	attestationDeadlineOffset time.Duration
-	blockRootPollInterval     time.Duration
+	ancestorTolerance     uint64
+	stalenessThreshold    time.Duration
+	maxAttestationDelay   time.Duration
+	blockRootPollInterval time.Duration
 
 	genesisTime time.Time
 
@@ -134,17 +134,17 @@ func New(ctx context.Context, params ...Parameter) (*Service, error) {
 	}
 
 	s := &Service{
-		log:                       log,
-		monitor:                   p.monitor,
-		headersProvider:           headersProvider,
-		finalityProvider:          finalityProvider,
-		requestTimeout:            p.requestTimeout,
-		slotsPerEpoch:             p.slotsPerEpoch,
-		secondsPerSlot:            p.secondsPerSlot,
-		ancestorTolerance:         p.ancestorTolerance,
-		stalenessThreshold:        p.stalenessThreshold,
-		attestationDeadlineOffset: p.attestationDeadlineOffset,
-		blockRootPollInterval:     defaultBlockRootPollInterval,
+		log:                   log,
+		monitor:               p.monitor,
+		headersProvider:       headersProvider,
+		finalityProvider:      finalityProvider,
+		requestTimeout:        p.requestTimeout,
+		slotsPerEpoch:         p.slotsPerEpoch,
+		secondsPerSlot:        p.secondsPerSlot,
+		ancestorTolerance:     p.ancestorTolerance,
+		stalenessThreshold:    p.stalenessThreshold,
+		maxAttestationDelay:   p.maxAttestationDelay,
+		blockRootPollInterval: defaultBlockRootPollInterval,
 	}
 
 	// Default monitor to a no op if not set.

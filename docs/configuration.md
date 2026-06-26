@@ -117,17 +117,18 @@ beacon-node:
   # ancestor-tolerance is the number of slots back from the local head that
   # are accepted as a valid attestation block root or proposal parent root.
   ancestor-tolerance: 4
-  # attestation-deadline-offset bounds how long the head tracker will wait for
+  # max-attestation-delay bounds how long the head tracker will wait for
   # an attestation's block root to appear on the local node's canonical chain
   # before denying.  This absorbs the propagation skew of a late block: the
-  # local node has not imported it yet but is about to.  It is an offset from
-  # the start of the slot being attested (not a relative budget), so the wait
-  # never runs past the point a signature stops being useful; set it short of
-  # the SECONDS_PER_SLOT/3 attestation boundary to leave headroom for signing
-  # and submission.  Only the local node's own view is ever consulted, so the
-  # wait defers the on-chain check rather than weakening it.  Set to 0 to
-  # disable the wait and deny immediately on an unknown root.
-  attestation-deadline-offset: 3.5s
+  # local node has not imported it yet but is about to.  It is measured from
+  # the start of the slot being attested, not from when the request arrives, so
+  # the wait never runs past the point a signature stops being useful.  The
+  # default of 4.5s sits 0.5s past Vouch's 4s (SECONDS_PER_SLOT/3) attestation
+  # fallback, so a root that is still propagating when Vouch signs at 4s can
+  # land here and be approved.  Only the local node's own view is ever
+  # consulted, so the wait defers the on-chain check rather than weakening it.
+  # Set to 0 to disable the wait and deny immediately on an unknown root.
+  max-attestation-delay: 4.5s
 
 ```
 
